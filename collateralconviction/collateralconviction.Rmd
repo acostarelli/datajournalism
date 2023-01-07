@@ -1,0 +1,465 @@
+---
+title: "Collateral Damage in Criminal Convictions"
+author: "Anthony Costarelli"
+date: "December 9th, 2022"
+output:
+  rmdformats::readthedown:
+    number_sections: true
+    highlight: tango
+    df_print: paged
+    center: true
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+rm(list=ls())
+library(dplyr)
+library(ebal)
+library(ggdag)
+library(ggplot2)
+library(modelsummary)
+library(tidyr)
+
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE)
+knitr::opts_knit$set(root.dir="C:/Users/acostarelli/OneDrive - Olin College of Engineering/Documents/QuASI/Final/quasi-final/")
+```
+
+# Introduction
+
+There are certain punishments that a criminal convict in the U.S. can expect following their conviction. Most directly, there is often a sentence, such as a fine or prison-time. Next there are indirect punishments; convicts often have trouble finding jobs or housing due to their new inability to pass background checks. But beyond that, there could exist a further, indirect punishment -- one exacted on their children. This paper seeks to determine the extent to which a parent's criminal conviction affects their child's future income.
+
+The independent variable is a dummy variable indicating if the parent was convicted for a crime. The dependent variable is the child's future income.
+
+The presence of a substantial causal relationship here would indicate that the U.S. criminal justice system doesn't care whom it punishes, and would suggest the need for policy reform in the form of softer punishments for convicts, stronger societal protection from prejudice against convicts, or welfare to support the family of convicts.
+
+# Data and Hypothesis
+
+I am using the U.S. Bureau of Labor Statistics' National Longitudinal Surveys.
+
+> "The Bureau of Labor Statistics measures labor market activity, working conditions, price changes, and productivity in the U.S. economy to support public and private decision making." [bls.gov](https://www.bls.gov/bls/infohome.htm)
+
+> "The National Longitudinal Surveys (NLS) are a set of surveys designed to gather information at multiple points in time on the labor market activities and other significant life events of several groups of men and women." [bls.gov](https://www.bls.gov/nls/)
+
+From the National Longitudinal Surveys, I am using two surveys: NLYS79 and NLYS79 Child and Young Adults.
+
+> "The NLSY79 is a nationally representative sample of 12,686 young men and women born during the years 1957 through 1964 and living in the United States when the survey began... Interviews were conducted annually from 1979 to 1994 and on a biennial basis thereafter. Data are now available from Round 1 (1979 survey year) to Round 28 (2018 survey year)." [bls.gov](https://www.bls.gov/nls/nlsy79.htm)
+
+> "The NLSY79 Child and Young Adult cohort is a longitudinal project that follows the biological children of the women in the NLSY79... Data are now available from 1986 to 2018, representing 17 survey rounds for the child sample and 13 for young adults in that time span." [bls.gov](https://www.bls.gov/nls/nlsy79-children.htm)
+
+These two datasets are useful for answering the research question because NLSY79 contains questions about criminal convictions, and NLYS79 C&YA contains questions about income, and the two datasets can be joined together to link the mother's conviction to the child's income in the same data unit.
+
+The data does have several weaknesses, however:
+
+* NLSY79 C&YA has one question for race and ethnicity, and the three available options are: Hispanic, Black, and non-Hispanic, non-Black. These options are hardly mutually exclusive nor collectively exhaustive, so the accuracy of this classification is questionable. Additionally, it conflates the notions of race and ethnicity.
+* NLSY79 C&YA has one question for sex that only allows Male and Female. Again, these options are not collectively exhaustive. Furthermore, the documentation for this data uses the word "women" to refer to units in this dataset, and unfortunately we are forced to assume that they are referring to the people who indicated themselves "Female," as there is no question for gender. Having acknowledged this, this paper will use the words "Men" and "Women" herein.
+* The NLSY79 C&YA only follows the children of the women in the NLSY79 survey, not the men. This means that parental criminal data for all the children is only for the mother.
+* After all data cleaning has been completed, there are only 12 units in the treatment group.
+* NLSY79 only ever asked one question on criminal conviction, and it was asked early-on in the time that the survey has existed -- in 1980.
+
+Overall, this paper is supposed to investigate the U.S. criminal justice system, and as these surveys are on samples of the general U.S. population, these samples align well with the population of interest.
+
+From the data, the following two variables are used for determining treatment and measuring outcome.
+
+| Dataset | Variable | Description | Year|
+| --- | --- | --- | --- |
+| NLSY79 | R0308200 | YEAR OF MOST RECENT ILLEGAL ACTIVITY CONVICTION (EXC MINOR TRAFFIC OFFENSE) | 1980 |
+| NLSY79 C&YA | Y2224100 | TOTAL INCOME FROM WAGES, SALARY, COMMISSIONS, OR TIPS FROM ALL JOBS (TOP-CODED) IN 2007 | 2008 |
+
+I have chosen to use 2007 income because it has the most responses.
+
+The following confounders are also being used from the NLSY79 C&YA dataset:
+
+| Variable | Description |
+| --- | --- |
+|	C0005300 | RACE OF CHILD |
+| C0005400 | SEX OF CHILD |
+| C0005700 | DATE OF BIRTH OF CHILD - YEAR |
+These confounders were selected for their non-collider status. We are able to use birth year here by selecting only children born before their mother's conviction.
+
+Before considering these specific variables, we can imagine a complex causal network linking a mother's criminal conviction to their child's future income.
+
+```{r}
+set.seed(0)
+dagify(
+  Income~MomConvicted,
+  Income~BirthYear,
+  Income~Race,
+  Income~Sex,
+  Income~Education,
+  Income~JobStatus,
+  Education~MomConvicted,
+  Education~BirthYear,
+  JobStatus~MomConvicted,
+  JobStatus~BirthYear,
+  JobStatus~Race,
+  JobStatus~Sex,
+  JobStatus~Education,
+  BirthYear~MomConvicted
+) %>% ggdag() +
+  theme_dark(base_size=0)
+```
+
+Simplifying the DAG to only confounders that we're considering, we're left with:
+
+```{r}
+set.seed(0)
+dagify(
+  Income~MomConvicted,
+  Income~BirthYear,
+  Income~Race,
+  Income~Sex
+) %>%
+  ggdag() +
+  theme_dark(base_size=0)
+```
+
+Controlling for our confounders should isolate the effect of a mother's conviction on their child's income.
+
+It takes no stretch of the imagination to picture how a child, raised under a parent oppressed by the consequences of a criminal conviction, too, is limited by this conviction, so much so that the answer to the research question almost feels trivial. The core of the question is essentially: is a child affected by the environment in which they are raised? This apparent frivolousness, however, doesn't make the answer any less important. Certainly a parent's criminal conviction affects their child's future income to some extent, so it is important to understand the magnitude of this effect. 
+
+# Data Exploration
+
+## Processing
+
+I process the NLSY79 C&YA data first.
+
+```{r echo=TRUE}
+cya <- read.csv("cya.csv") %>%
+  rename(
+    BirthYear  =C0005700,
+    ID         =C0000100,
+    Income     =Y2224100,
+    IncomeGuess=Y2224200,
+    Race       =C0005300,
+    Sex        =C0005400,
+    MomID      =C0000200,
+    WeightSA   =Y2266900
+  )
+```
+
+I drop all units with a sampling weight of 0.
+
+```{r echo=TRUE}
+cya <- cya %>% filter(WeightSA > 0)
+```
+
+The NLSYA79 C&YA survey runs every two years, but not every member is surveyed every time. Those not surveyed are given a weight of 0.
+
+I also drop units missing income data.
+
+```{r echo=TRUE}
+cya <- cya %>% filter((Income == -2 & IncomeGuess > 0) | Income >= 0)
+```
+
+Negative values have a special meaning for this question.
+
+|Value|Meaning|
+|---|---|
+|-7|Respondent wasn't asked|
+|-2|Respondent didn't know|
+|-1|Respondent refused|
+
+Everyone who is surveyed is asked the `Income` question, so any respondents with -7 for `Income` are dropped when we filter based on weight. Respondents with -2 for `Income` are asked the `IncomeGuess` question. Between `Income` and `IncomeGuess`, there are only 40 people who refused, and I filter them out. It might be interesting to investigate if there is a pattern to the refusal, but the number of refusals is very small compared to the number of total units, so they will be safely ignored.
+
+And lastly for filtering, I drop units missing sex data.
+
+```{r echo=TRUE}
+cya <- cya %>% filter(Sex > 0)
+```
+
+There are only two units missing this data and it is unclear why, so I think it is better to remove them than make assumptions.
+
+Next, I impute income data for those that chose to guess their income.
+
+```{r echo=TRUE}
+cya <- cya %>% mutate(
+  ## First recode the guess as the median or -1 if there was no guess, then
+  ## find the element-wise max between Income and IncomeGuess, which has the
+  ## effect of keeping Income if it was supplied, or replacing it with the
+  ## imputed guess if it was not.
+  Income=pmax(
+      Income,
+      recode(
+        IncomeGuess,
+        `1`=2500,
+        `2`=7500,
+        `3`=17500,
+        `4`=37500,
+        `5`=75000,
+        `6`=175000,
+        `7`=250000,
+        .default=-1
+      )
+    )
+)
+```
+
+Those who guessed their income were presented with 7 income bins in which to place themselves. I impute the median of each bin. The seventh bin is unbounded, so I chose the lower bound instead of the median. However, there is no one who chose this bin so it doesn't really matter. It also should be noted that `Income` is top-coded using the mean value of the top 2% of `Income` values (but this top-code is still smaller than the lower-bound of the highest bin).
+
+Now I convert `Race`, `Sex`, and `BirthYear` to be dummy variables.
+
+```{r echo=TRUE}
+cya <- cya %>%
+  mutate(
+    Hispanic=Race == 1,
+    Black   =Race == 2,
+    
+    Male    =Sex  == 1
+  ) %>%
+  bind_cols(
+    data.frame(
+      ## This turns a categorical variable into dummies for each category and
+      ## saves as a matrix.
+      model.matrix(
+        ~as.factor(BirthYear)-1,
+        data=.
+      )
+    )
+  )
+```
+
+
+This simple conversion has two benefits:
+
+* Removes the inherent ordering that the original numerical encoding of race and sex implies. This allows for a more logical application of entropy balancing later.
+* Allows for the model to capture unobserved birth-year-level/cohort-level effects like a fixed-effects model.
+
+Next, I process NLSY79.
+
+```{r echo=TRUE}
+mom <- read.csv("mom.csv") %>%
+  rename(
+    MomConvictYear=R0308200,
+    MomID=R0000100
+  )
+```
+
+I create a dummy indicating if the mother was convicted.
+
+```{r echo=TRUE}
+mom <- mom %>% mutate(MomConvicted=MomConvictYear >= 0)
+```
+
+Negative values for this question follow a similar format to the income question. Of those that were asked this question, there was no one that refused to answer. However, there were 11 that incorrectly skipped this question. This means that they indicated in a prior question that they were convicted, but that they, for whatever reason, didn't say when. In order to control for the child's age, I need to know the year the mother was convicted. So, I have no use for units that don't say when they were convicted. I discuss the implications of this at the end of this paper.
+
+Next, I reformat the conviction year variable.
+
+```{r echo=TRUE}
+mom <- mom %>% mutate(MomConvictYear=MomConvictYear + 1900)
+```
+
+This variable is formatted as a 2-digit year in the 1900s. I convert it to a regular, 4-digit year so it can be more-easily compared to the child's birth year.
+
+The two datasets, NLSY79 C&YA and NLSY79 can be joined on the mother's ID.
+
+```{r echo=TRUE}
+nls <- left_join(cya, mom, by="MomID")
+```
+
+We can now determine Treatment vs. Control.
+
+```{r echo=TRUE}
+nls <- nls %>% mutate(Treatment=(BirthYear <= MomConvictYear) & MomConvicted)
+```
+
+A unit is in the treatment group if their mother was convicted, and if the conviction happened after they were born. Again, this is to make the child's age a non-collider on their income so we can control for it.
+
+```{r}
+## Remove unneeded variables. I also remove one of the birth year dummies so there is no collinearity.
+nls <- nls %>% mutate(
+  ID=NULL, MomID=NULL, Race=NULL, Sex=NULL, IncomeGuess=NULL, as.factor.BirthYear.1970=NULL, MomConvictYear=NULL, MomConvicted=NULL
+)
+```
+
+## Descriptive Figures
+
+### `Covariate ~ Treatment` Distributions
+
+```{r}
+ggplot(nls, aes(x=BirthYear, fill=Treatment)) +
+  geom_density(alpha=0.5) +
+  labs(
+    title="Birth Year by Treatment",
+    x="Birth Year",
+    y="Density"
+  )
+
+nls %>%
+  group_by(Treatment) %>%
+  summarise(
+    Hispanic=weighted.mean(Hispanic, WeightSA),
+    Black   =weighted.mean(Black, WeightSA),
+    Male    =weighted.mean(Male, WeightSA),
+  ) %>%
+  ungroup() %>%
+  pivot_longer(c("Hispanic", "Black", "Male")) %>%
+  ggplot(aes(x=name, y=value, fill=Treatment)) +
+  geom_bar(position="dodge", stat="identity") +
+  labs(
+    title="Demographic proportions for treatment and control",
+    caption="Figure 1",
+    x="Demographic",
+    y="Proportion"
+  )
+```
+
+The age difference between the groups is alarming, but it is expected because because I am selecting children only born before their mother's conviction, and the latest recorded mother's conviction is in 1980 (the year when the conviction question was asked).
+
+It is interesting that the proportion of treatment units that are men is so different from the proportion of control units that are men. This is likely because the number of treatment units is so few that this number is probably highly-affected by random chance.
+
+### `Income ~ Covariate` Distributions
+
+```{r}
+lab <- ggplot() + geom_density(alpha=0.5) + labs(
+  x="Log base 10 of Income($)",
+  y="Density"
+)
+
+ggplot(nls, aes(x=log10(Income), fill=Hispanic, weight=WeightSA)) +
+  geom_density(alpha=0.5) +
+  labs(
+    x="Log base 10 of Income($)",
+    y="Density",
+    title="Income by Hispanic"
+  )
+
+ggplot(nls, aes(x=log10(Income), fill=Black   , weight=WeightSA)) +
+  geom_density(alpha=0.5) +
+  labs(
+    x="Log base 10 of Income($)",
+    y="Density",
+    title="Income by Black"
+  )
+
+ggplot(nls, aes(x=log10(Income), fill=Male    , weight=WeightSA)) +
+  geom_density(alpha=0.5) +
+  labs(
+    x="Log base 10 of Income($)",
+    y="Density",
+    title="Income by Male"
+  )
+
+ggplot(nls, aes(x=BirthYear, y=log10(Income), weight=WeightSA)) +
+  geom_density_2d_filled() +
+  labs(
+    y="Log base 10 of Income($)",
+    x="Birth Year",
+    title="Birth Year and Income",
+    caption="Note: ggplot2 does not support weighted 2D density plots."
+  )
+```
+
+It is interesting that that Hispanic units seem to have higher income than non-Hispanic units. It would seem that Hispanic people are often associated with being unfairly treated on the basis of race by the American job market. It should be noted that the BLS admits to consistently oversampling Hispanic people in the NLS, and while I am accounting for sampling weight here, perhaps it is imperfect. Or, it could be true that the average Hispanic American indeed makes more money than the average non-Hispanic American. This question could be answered better with another dataset that isn't focused on longitudinal surveys and has more units to compare among.
+
+The 2D density plot is informative, but is a bit difficult to interpret at first. The bright yellow peak suggests that the most common unit was born around 1983 and makes about ~\$30k. As age decreases, income decreases as well, as one might expect.
+
+The first three density plots have an initial, smaller peak before their main peak. In the 2D density plot, this is found at around 1988 and ~\$3k. After some investigation, I found these peaks to be a result of the income imputation for units that guessed their income. It might be interesting to investigate if there is a pattern to the units that guessed their income. Roughly guessing based on the plots, it seems that units that are non-Hispanic, non-Black, women, or younger seem to be more likely to guess their income.
+
+### `Income ~ Treatment` Distributions
+
+```{r}
+ggplot(nls, aes(x=log10(Income), fill=Treatment, weight=WeightSA)) +
+  geom_density(alpha=0.5) +
+  labs(
+    title="Income by Treatment",
+    x="Log base 10 of Income($)",
+    y="Density"
+  )
+```
+This naive plot suggests that units in the treatment group are definitely making more money than those in control.
+
+Using the previous plots, we can hypothesize that the reason for this is because the treatment group is on-average older and more-likely to be men, and that older people and men tend to make more money due to work experience and gender discrimination. In order to check this guess, the following table explores the balance between the treatment and control groups.
+
+```{r}
+covars <- setdiff(
+  names(nls),
+  c("BirthYear", "Income", "WeightSA", "Treatment")
+)
+
+prebal <- list()
+for(cv in covars) {
+  prebal[[cv]] <- lm(unlist(nls[, cv])~nls$Treatment, weights=nls$WeightSA)
+}
+modelsummary(prebal, stars=TRUE, title="Balance")
+```
+
+Indeed, there are significant positive correlations between `Treatment` and several `BirthYear` categories, as well as `Treatment` and `Male`. Next, this table shows a naive estimate of the causal effect of treatment status and these covariates on income.
+
+```{r}
+modelsummary(
+  list(
+    Simple=lm(Income~Treatment, nls, weights=WeightSA),
+    Multiple=lm(reformulate(c("Treatment", covars), response="Income"), nls, weights=WeightSA)
+  ),
+  stars=TRUE,
+  title="Naive Estimates"
+)
+```
+While there is a significant, positive correlation between `Male` and `Income`, there seem to be insignificant, negative correlations between the birth years and `Income`. This seems to go against my initial guess, and also against the `Income ~ Covariate` distribution plots. But interestingly, all of the birth years have negative coefficients (except '72 and '75), so perhaps it's important to look at the relative magnitude of these differences, e.g. are some birth years associated with less income-reduction than others? Regardless, these coefficients are a bit strange to interpret; why would nearly every birth year be associated with a loss in income? All in all, these coefficients are merely a result from OLS regression, and this is only a naive causal estimate, so there's nothing interesting here yet.
+
+# Causal Inference
+
+A random experiment would be highly unethical here, so a quasi-experiment is necessary. There is no running variable with a cutoff, so I cannot employ regression discontinuity. What remains is matching. Entropy balancing has a high internal validity among matching experiments.
+```{r}
+nls <- nls %>%
+  group_by(Treatment) %>%
+  mutate(
+    WeightEB={
+      if(any(Treatment)) 1
+      else ebalance(
+        Treatment=nls$Treatment,
+        X=nls[, covars],
+        base.weight=nls[!nls$Treatment,]$WeightSA
+      )$w
+    }
+  ) %>%
+  ungroup()
+```
+
+Following entropy balancing, the updated balance between the groups is shown below.
+
+```{r}
+postbal <- list()
+for(cv in covars) {
+  postbal[[cv]] <- lm(unlist(nls[, cv])~nls$Treatment, weights=nls$WeightEB)
+}
+modelsummary(postbal, stars=TRUE, title="Balance after Entropy Balancing")
+```
+Both groups are considerably more similar now. Entropy balancing seems to have introduced some significance to the differences in some of the birth years, but overall all magnitudes are much lower. These differences will hurt the credibility of the result, but with such a difference in the sizes of the treatment and control groups, there will be no perfect balancing.
+
+Now that the groups are more balanced, we can run a regression to measure effects.
+
+```{r}
+modelsummary(
+  list(
+    Simple=lm(Income~Treatment, nls, weights=WeightEB),
+    Multiple=lm(reformulate(c("Treatment", covars), response="Income"), nls, weights=WeightEB)
+  ),
+  stars=TRUE,
+  title="Causal Estimate with Entropy Balancing"
+)
+```
+There is a slight difference in the measured effect between using a simple regression and a multiple regression. This, too, is a result of the groups' not being perfectly observably balanced. However, luckily, both estimates are not only on the same order of magnitude, but are off by only about ~\$700. Importantly, both results are now more significant (at the 0.001 level), when they were either considerably less so with the naive estimate.
+
+# Conclusion
+
+The question I seek to answer is:
+
+> To what extent does a parent's conviction affect their child's income?
+
+The result from the entropy balancing quasi-experiment is that a mother's pre-1981 criminal conviction lowers their child's 2007 income by approximately \$14,500 on average, given that the child was born before the mother's conviction. In comparison, someone working 40 hours per week at [2007 federal minimum wage](https://www.dol.gov/sites/dolgov/files/WHD/legacy/files/chart.pdf) would make $12,168 in a year.
+
+In this context, the effect is certainly substantial and affirms the need for policy revision. It is entirely illogical that someone not at all responsible for a crime should face such a punishment. Two possible approaches might be to either implement protections for convicts against job and housing prejudices (e.g. "Ban the Box") so that their children aren't raised sharing their criminal penalty, or to implement welfare for the children of convicts relative to their estimated income loss.
+
+The internal validity is limited firstly by the inherent internal validity limitations of a matching quasi-experiment, more-specifically entropy balancing. With matching, we are hoping to create units that are at least observably similar when we do regression analysis, but there is not much to be said for unobservable characteristics.
+
+For example, all units in the treatment group were necessarily born before 1980. This is because the question about criminal conviction was only asked once, and we selected only units that were born before their mother's criminal conviction (which could've occurred, at latest, in 1980). However, the control group has no such age restriction. So, there exists a possibility that there are unobservable differences due to birth year. On the other hand, I converted `BirthYear` to a categorical variable to attempt to counteract this, but such a fixed-effects model is not perfect at controlling for these unobservables.
+
+The recording time of the criminal conviction question also poses another problem. There were 27 years between 1980 (when the conviction question was asked) and 2007 (when the income question was asked). It is completely plausible that some control units could have been criminally convicted in this time, but there is no way to know which ones. Furthermore, because we only have data on the mothers of the units in NLSY79 C&YA, we don't have any way of knowing if the other parents convicted. And even beyond that, we know that some units incorrectly skipped the criminal conviction year question, so we are reminded of the possibility that some units could have incorrectly filled out the survey, or simply lied. To handle all of this, we can borrow terminology from random experiments and say that the estimated effect is something like an ITT estimate, rather than TOT.
+
+The external validity is limited firstly by the poor classification of race and sex. There is an accompanying sample weight for each unit based on this demographic information, but if these classifications are inaccurate to begin with, it raises the question of how truly representative each unit is when considering its sample weight.
+
+Additionally, all of the units in NLSY79 C&YA are children from the same cohort. Thus all analysis and results are conditional on someone being a child of this cohort, and thus they may not generalize well to children of other cohorts.
+
+Lastly, these results are quite outdated -- we're observing early-80s convictions on late-2000s income. But it's already 2022, and certainly the economy has changed much even if public policy hasn't. Unfortunately, as comprehensive as the NLS is, there isn't much more that can be explored with the data to this end.
+
+Police unions, private prisons, underfunded public defenders, mandatory minimum sentences, criminalized drug use, criminal disenfranchisement, and, quite possibly: collateral damage for the families of criminal convicts. America has it all. Serious criminal justice policy change is needed, and data is needed to inform these changes. The NLS is not sufficient, but the longitudinal survey model can still prove useful. Perhaps it is time for America to begin surveying its convicts to gain strong, quantitative insights into the true, numerical effects that its criminal policies have.
